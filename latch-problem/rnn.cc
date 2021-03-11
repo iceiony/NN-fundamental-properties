@@ -1,8 +1,9 @@
 #include "dynet/training.h"
 #include "dynet/expr.h"
-#include "dynet/io.h"
+#include "RNN.hpp"
 
 namespace dy = dynet;
+using namespace dy;
 
 #include <tuple>
 #include <iostream>
@@ -11,43 +12,8 @@ namespace dy = dynet;
 
 using namespace std;
 
-class RNN {
-    private:
-        ParameterCollection m;
-        Parameter hidden;
-        Parameter output;
-        unsigned int state_size;
-    public: 
-        ComputationGraph cg;
 
-        RNN(neuron_count){
-            state_size = (unsigned int) neuron_count;
-            hidden = m.add_parameters({state_size, 1 + state_size})
-            output = m.add_parameters({1, state_size})
-        }
-
-        vector<dy::real> forward(vector<dy::real> X[], unsigned int L){
-            int batch_size = X.size() / L ;
-
-            Expression x = input(cg, Dim({L}, batch_size), &X); 
-            Expression h = dy::realzeroes(cg, Dim({state_size}, batch_size));
-
-            Expression w;
-            h = concatenate({x, h});
-            w = parameter(cg, hidden);
-
-
-            //h = state or self.empty_state
-            //for x in data.split(1, dim=1):
-            //    x, h = self.forward_state(x, h)
-
-            //#progress with empty input for single output
-            //# x, h = self.forward_state(self.empty_input, h)
-            //return x, h
-        }
-}
-
-std::tuple<int, int, int> read_args(int argc, char* argv[]){
+std::tuple<unsigned, unsigned, unsigned> read_args(int argc, char* argv[]){
     if(argc < 4) {
         std::cout << "Arguments expected for: \n";
         std::cout << " * number of neurons in recurrent layer \n";
@@ -57,9 +23,9 @@ std::tuple<int, int, int> read_args(int argc, char* argv[]){
         throw std::invalid_argument("Incorrect number of arguments.");
     }
 
-    int neuron_count = std::atoi(argv[1]);
-    int L_max = std::atoi(argv[2]);
-    int epoch_max = std::atoi(argv[3]);
+    unsigned neuron_count = std::atoi(argv[1]);
+    unsigned L_max = std::atoi(argv[2]);
+    unsigned epoch_max = std::atoi(argv[3]);
 
     std::cout << " * number of neurons in recurrent layer : " <<  neuron_count << "\n";
     std::cout << " * the max length of noise              : " << L_max << "\n";
@@ -71,7 +37,7 @@ std::tuple<int, int, int> read_args(int argc, char* argv[]){
 std::vector<dy::real> create_data(vector<dy::real> X, unsigned int L){
     std::random_device r;
     std::default_random_engine eng(r());
-    std::uniform_real_distribution rng(0.0, 1.1);
+    std::uniform_real_distribution rng(-1.0, 1.0);
 
     vector<dy::real> out;
 
@@ -91,18 +57,39 @@ std::vector<dy::real> create_data(vector<dy::real> X, unsigned int L){
 
 int main(int argc, char* argv[]){
     //int argc; char** argv;
-    dy::realinitialize(argc, argv);
+    dy::initialize(argc, argv);
 
     auto [neuron_count, L_max, epoch_max] = read_args(argc, argv);
-    //unsigned int neuron_count, L_max, epoch_max; tie(neuron_count, L_max, epoch_max) = make_tuple(10, 20 , 30);
+    //unsigned int neuron_count, L, epoch_max; tie(neuron_count, L, epoch_max) = make_tuple(10, 5 , 500);
 
-    vector<dy::real> X = {0.0, 1.0};
+    vector<dy::real> X = {-1.0, 1.0};
     vector<dy::real> Y = {0.0, 1.0};
+    unsigned batch = (unsigned) Y.size();
 
+    ComputationGraph cg
+    RNN net(neuron_count);
+    SimpleSGDTrainer trainer(net.params, 0.5);
 
     for(int epoch = 1; epoch < epoch_max; epoch ++ ){
-        ParameterCollection m;
-        SimpleSGDTrainer trainer(m, 0.5);
+        cg.clear();
+
+        X = create_data(X, L);
+
+        auto y = input(cg, Dim({1}, batch), &Y);
+        auto x = input(cg, Dim({L + 1}, batch), &X); 
+
+        auto y_pred = net.forward(cg, x);
+
+        y_pred = reshape(y_pred, Dim({batch}, 1));
+        y      = reshape(y,      Dim({batch}, 1));
+        auto loss = binary_log_loss(y_pred, y);
+
+        auto my_loss = as_scalar(cg.forward(loss));
+
+        cg.backward(loss);
+        trainer.update();
+
+        cout << "E = " << my_loss << endl;
     }
     
 }
