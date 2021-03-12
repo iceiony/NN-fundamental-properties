@@ -15,7 +15,7 @@ class RNN {
     public: 
         ParameterCollection params;
 
-        RNN( unsigned neuron_count){
+        RNN(unsigned neuron_count){
             state_size = (unsigned) neuron_count;
             hidden = params.add_parameters({state_size, 1 + state_size});
             output = params.add_parameters({1, state_size});
